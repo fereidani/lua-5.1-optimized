@@ -457,8 +457,27 @@ LUA_API void lua_pushboolean(lua_State* L, int b) {
   lua_unlock(L);
 }
 
+/*
+** The NaN-boxed representation carries a 47-bit payload. Every pointer a host
+** OS hands out fits, but light userdata is the one pointer the embedder
+** chooses, so it must be checked wherever one enters: lua_pushlightuserdata
+** and lua_cpcall's `ud`. Checked for real rather than by lua_assert:
+** assertions compile out of release builds, which would turn a bad pointer
+** into silent corruption instead of an error. Both callers are cold.
+*/
+#if defined(LUA_NANBOX)
+#define checklightud(L, p)                                              \
+  {                                                                     \
+    if (((size_t)(p) & ~(size_t)NB_PAYLOAD) != 0)                       \
+      luaG_runerror(L, "light userdata pointer does not fit in 47 bits"); \
+  }
+#else
+#define checklightud(L, p) ((void)0)
+#endif
+
 LUA_API void lua_pushlightuserdata(lua_State* L, void* p) {
   lua_lock(L);
+  checklightud(L, p);
   setpvalue(L->top, p);
   api_incr_top(L);
   lua_unlock(L);
@@ -762,6 +781,7 @@ static void f_Ccall(lua_State* L, void* ud) {
   cl->c.f = c->func;
   setclvalue(L, L->top, cl); /* push function */
   api_incr_top(L);
+  checklightud(L, c->ud); /* raised inside the pcall: lua_cpcall returns it */
   setpvalue(L->top, c->ud); /* push only argument */
   api_incr_top(L);
   luaD_call(L, L->top - 2, 0);

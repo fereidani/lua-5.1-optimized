@@ -59,7 +59,79 @@ typedef union {
 
 /*
 ** Tagged Values
+**
+** Two representations. The classic one is a value union plus a separate type
+** tag, 16 bytes after padding. LUA_NANBOX packs both into a single 64-bit
+** word, which halves every stack slot, array element and upvalue, and takes a
+** table Node from 40 bytes to 24.
+**
+** Encoding, keyed on the top 17 bits (v >> 47):
+**
+**   <= 0x1FFF0   a double, stored as its raw bits
+**    > 0x1FFF0   a tagged value: type in the top 17 bits, 47-bit payload
+**
+** After canonicalization (see luai_canonnan) the largest bit pattern any
+** double can take is the negative quiet NaN 0xFFF8000000000000, whose top 17
+** bits are exactly 0x1FFF0 -- so tags start one above it, at 0x1FFF1, leaving
+** 15 tag slots for the 12 a TValue needs. Canonicalization is what makes this
+** safe: without it tonumber("nan(0x...)") would let a script choose the tag
+** and the pointer, so LUA_NANBOX implies LUAI_NANCANON.
+**
+** The 47-bit payload covers user-space pointers on x86-64 and AArch64, Linux,
+** macOS and Windows alike; 64-bit is required and enforced below.
 */
+#if defined(LUA_NANBOX)
+
+#if !defined(LUAI_NANCANON)
+#define LUAI_NANCANON /* the encoding is unsound without it */
+#endif
+
+#define NB_SHIFT     47
+#define NB_PAYLOAD   (((lu_int64)1 << NB_SHIFT) - 1)
+#define NB_TAGBASE   ((lu_int64)0x1FFF1)  /* itype of tag 0 (LUA_TNIL)      */
+
+#define nb_itype(o)  ((o)->w.u >> NB_SHIFT)
+#define nb_tag(t)    ((NB_TAGBASE + (lu_int64)(t)) << NB_SHIFT)
+#define nb_is(o, t)  (nb_itype(o) == NB_TAGBASE + (lu_int64)(t))
+
+/* First word that is not a double. Testing against it directly avoids the
+   shift: every double is below it and every tagged value is at or above it.
+   This is the hottest predicate in the interpreter -- both operands of every
+   arithmetic instruction and every comparison go through it. */
+#define NB_TAGWORD0  (NB_TAGBASE << NB_SHIFT)
+#define nb_isnum(o)  ((o)->w.u < NB_TAGWORD0)
+#define nb_ptr(o)    ((void*)(size_t)((o)->w.u & NB_PAYLOAD))
+#define NB_NILWORD   (((lu_int64)(NB_TAGBASE + LUA_TNIL)) << NB_SHIFT)
+
+/*
+** The word is a union rather than a bare integer so a number can be read and
+** written directly, without round-tripping through memcpy. Punning through a
+** union member is well defined in C, and it keeps arithmetic -- which reads
+** two operands and writes one on every instruction -- as cheap as the classic
+** representation.
+*/
+typedef union {
+  lu_int64 u;
+  lua_Number n;
+} NBWord;
+
+#define TValuefields NBWord w
+
+typedef struct lua_TValue {
+  TValuefields;
+} TValue;
+
+#define nb_setnum(o, x) luai_canonnan((o)->w.n, x)
+#define nb_getnum(o, r) ((r) = (o)->w.n)
+
+#define nb_setp(o, t, x)                                              \
+  {                                                                   \
+    size_t nb_p = (size_t)(x);                                        \
+    lua_assert((nb_p & ~(size_t)NB_PAYLOAD) == 0); /* fits 47 bits */ \
+    (o)->w.u = nb_tag(t) | (lu_int64)nb_p;                              \
+  }
+
+#else
 
 #define TValuefields \
   Value value;       \
@@ -68,6 +140,91 @@ typedef union {
 typedef struct lua_TValue {
   TValuefields;
 } TValue;
+
+#endif
+
+#if defined(LUA_NANBOX)
+
+/* Macros to test type */
+#define ttisnil(o) ((o)->w.u == NB_NILWORD)
+#define ttisnumber(o) nb_isnum(o)
+#define ttisstring(o) nb_is(o, LUA_TSTRING)
+#define ttistable(o) nb_is(o, LUA_TTABLE)
+#define ttisfunction(o) nb_is(o, LUA_TFUNCTION)
+#define ttisboolean(o) nb_is(o, LUA_TBOOLEAN)
+#define ttisuserdata(o) nb_is(o, LUA_TUSERDATA)
+#define ttisthread(o) nb_is(o, LUA_TTHREAD)
+#define ttislightuserdata(o) nb_is(o, LUA_TLIGHTUSERDATA)
+
+/* Macros to access values */
+#define ttype(o) \
+  (nb_isnum(o) ? LUA_TNUMBER : (int)(nb_itype(o) - NB_TAGBASE))
+#define gcvalue(o) check_exp(iscollectable(o), (GCObject*)nb_ptr(o))
+#define pvalue(o) check_exp(ttislightuserdata(o), nb_ptr(o))
+#define rawtsvalue(o) check_exp(ttisstring(o), &((GCObject*)nb_ptr(o))->ts)
+#define tsvalue(o) (&rawtsvalue(o)->tsv)
+#define rawuvalue(o) check_exp(ttisuserdata(o), &((GCObject*)nb_ptr(o))->u)
+#define uvalue(o) (&rawuvalue(o)->uv)
+#define clvalue(o) check_exp(ttisfunction(o), &((GCObject*)nb_ptr(o))->cl)
+#define hvalue(o) check_exp(ttistable(o), &((GCObject*)nb_ptr(o))->h)
+#define bvalue(o) check_exp(ttisboolean(o), (int)((o)->w.u & 1))
+#define thvalue(o) check_exp(ttisthread(o), &((GCObject*)nb_ptr(o))->th)
+
+#define nvalue(o) check_exp(ttisnumber(o), (o)->w.n)
+
+/*
+** Truthiness in one subtract and one compare, which the tag order makes
+** possible: LUA_TNIL is 0 and LUA_TBOOLEAN is 1, so the false values are
+** exactly the words in [NB_NILWORD, NB_NILWORD + 2^47]. Nil occupies the
+** bottom of that range (any payload, though only zero occurs), false is its
+** top, and true sits one past it. Numbers are below NB_NILWORD and underflow
+** out of range; every other tag is above it. Replaces up to three compares in
+** TEST, TESTSET and NOT.
+*/
+#define l_isfalse(o) \
+  (((o)->w.u - NB_NILWORD) <= ((lu_int64)1 << NB_SHIFT))
+
+#define checkconsistency(obj) \
+  lua_assert(!iscollectable(obj) || (ttype(obj) == gcvalue(obj)->gch.tt))
+
+#define checkliveness(g, obj)                        \
+  lua_assert(!iscollectable(obj) ||                  \
+             ((ttype(obj) == gcvalue(obj)->gch.tt) && \
+              !isdead(g, gcvalue(obj))))
+
+/* Macros to set values */
+#define setnilvalue(obj) ((obj)->w.u = nb_tag(LUA_TNIL))
+
+#define setnvalue(obj, x)  \
+  {                        \
+    TValue* i_o = (obj);   \
+    nb_setnum(i_o, x);     \
+  }
+
+#define setpvalue(obj, x)                       \
+  {                                             \
+    TValue* i_o = (obj);                        \
+    nb_setp(i_o, LUA_TLIGHTUSERDATA, (x));      \
+  }
+
+#define setbvalue(obj, x) \
+  ((obj)->w.u = nb_tag(LUA_TBOOLEAN) | (lu_int64)((x) != 0))
+
+#define nb_setgc(L, obj, x, t)                  \
+  {                                             \
+    TValue* i_o = (obj);                        \
+    nb_setp(i_o, t, cast(GCObject*, (x)));      \
+    checkliveness(G(L), i_o);                   \
+  }
+
+#define setsvalue(L, obj, x) nb_setgc(L, obj, x, LUA_TSTRING)
+#define setuvalue(L, obj, x) nb_setgc(L, obj, x, LUA_TUSERDATA)
+#define setthvalue(L, obj, x) nb_setgc(L, obj, x, LUA_TTHREAD)
+#define setclvalue(L, obj, x) nb_setgc(L, obj, x, LUA_TFUNCTION)
+#define sethvalue(L, obj, x) nb_setgc(L, obj, x, LUA_TTABLE)
+#define setptvalue(L, obj, x) nb_setgc(L, obj, x, LUA_TPROTO)
+
+#else
 
 /* Macros to test type */
 #define ttisnil(o) (ttype(o) == LUA_TNIL)
@@ -179,6 +336,20 @@ typedef struct lua_TValue {
     checkliveness(G(L), i_o);             \
   }
 
+#endif
+
+#if defined(LUA_NANBOX)
+
+#define setobj(L, obj1, obj2)  \
+  {                            \
+    const TValue* o2 = (obj2); \
+    TValue* o1 = (obj1);       \
+    o1->w.u = o2->w.u;         \
+    checkliveness(G(L), o1);   \
+  }
+
+#else
+
 #define setobj(L, obj1, obj2)  \
   {                            \
     const TValue* o2 = (obj2); \
@@ -187,6 +358,8 @@ typedef struct lua_TValue {
     o1->tt = o2->tt;           \
     checkliveness(G(L), o1);   \
   }
+
+#endif
 
 /*
 ** different types of sets, according to destination
@@ -207,7 +380,14 @@ typedef struct lua_TValue {
 #define setobj2n setobj
 #define setsvalue2n setsvalue
 
+#if defined(LUA_NANBOX)
+/* Replace the tag, keeping the payload -- lgc.c uses this to mark a dead key
+   while still needing its pointer for identity comparison. */
+#define setttype(obj, t) \
+  ((obj)->w.u = nb_tag(t) | ((obj)->w.u & NB_PAYLOAD))
+#else
 #define setttype(obj, tt) (ttype(obj) = (tt))
+#endif
 
 #define iscollectable(o) (ttype(o) >= LUA_TSTRING)
 
@@ -359,6 +539,14 @@ l_inline int luaO_num2int(lua_Number n, int* k) {
 ** Copy a value into a node's key, leaving the chain pointer alone. A TKey is
 ** a TValue plus `next`, so this cannot be a plain struct assignment.
 */
+#if defined(LUA_NANBOX)
+#define setnodekey(L, k, obj)  \
+  {                            \
+    const TValue* nk_o = (obj); \
+    (k)->w.u = nk_o->w.u;      \
+    checkliveness(G(L), nk_o); \
+  }
+#else
 #define setnodekey(L, k, obj)   \
   {                             \
     const TValue* nk_o = (obj); \
@@ -366,6 +554,7 @@ l_inline int luaO_num2int(lua_Number n, int* k) {
     (k)->tt = nk_o->tt;         \
     checkliveness(G(L), nk_o);  \
   }
+#endif
 
 /*
 ** `next` is a relative offset to the next node in the chain, not a pointer:

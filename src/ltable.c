@@ -63,10 +63,17 @@
 
 #define dummynode (&dummynode_)
 
+#if defined(LUA_NANBOX)
+static const Node dummynode_ = {
+    {{NB_NILWORD}},     /* value */
+    {{{NB_NILWORD}, 0}} /* key */
+};
+#else
 static const Node dummynode_ = {
     {{NULL}, LUA_TNIL},     /* value */
     {{{NULL}, LUA_TNIL, 0}} /* key */
 };
+#endif
 
 /*
 ** hash for lua_Numbers

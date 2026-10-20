@@ -172,6 +172,22 @@ typedef unsigned long lu_int64;
 #define luai_canonnan(r, x) ((r) = (x))
 #endif
 
+/*
+** LUA_NANBOX packs a Lua value into a single 64-bit word (see lobject.h).
+** It needs 64-bit pointers and IEEE doubles, so it is refused elsewhere
+** rather than silently producing a build that corrupts memory.
+*/
+#if defined(LUA_NANBOX)
+#if !defined(LUA_NUMBER_DOUBLE)
+#error "LUA_NANBOX requires LUA_NUMBER to be double"
+#endif
+/* 64-bit only: a 47-bit payload cannot hold a pointer otherwise, and the
+   encoding has no meaning for a 32-bit build. */
+struct luai_nanbox_needs_64bit_pointers {
+  int ok[sizeof(void*) == 8 ? 1 : -1];
+};
+#endif
+
 #if !defined(luai_likely)
 #if defined(__GNUC__) || defined(__clang__)
 #define luai_likely(x) (__builtin_expect(!!(x), 1))

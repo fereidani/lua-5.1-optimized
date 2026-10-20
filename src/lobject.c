@@ -21,7 +21,12 @@
 #include "lua.h"
 #include "lvm.h"
 
+#if defined(LUA_NANBOX)
+/* the nil word: tag LUA_TNIL, zero payload */
+const TValue luaO_nilobject_ = {{NB_NILWORD}};
+#else
 const TValue luaO_nilobject_ = {{NULL}, LUA_TNIL};
+#endif
 
 /*
 ** converts an integer to a "floating point byte", represented as
