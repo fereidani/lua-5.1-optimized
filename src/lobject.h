@@ -10,6 +10,8 @@
 #include <stdarg.h>
 
 #include "llimits.h"
+#include <string.h>
+
 #include "lua.h"
 
 /* tags for values visible from Lua */
@@ -108,11 +110,11 @@ typedef struct lua_TValue {
 /* Macros to set values */
 #define setnilvalue(obj) ((obj)->tt = LUA_TNIL)
 
-#define setnvalue(obj, x)  \
-  {                        \
-    TValue* i_o = (obj);   \
-    i_o->value.n = (x);    \
-    i_o->tt = LUA_TNUMBER; \
+#define setnvalue(obj, x)          \
+  {                                \
+    TValue* i_o = (obj);           \
+    luai_canonnan(i_o->value.n, x); \
+    i_o->tt = LUA_TNUMBER;         \
   }
 
 #define setpvalue(obj, x)         \
