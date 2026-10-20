@@ -17,8 +17,37 @@
 #include "lua.h"
 #include "lualib.h"
 
+/* For luaO_num2str(), the shared integral-number formatter. This is the one
+   place the string library reaches into the core; the alternative was to
+   duplicate the "%.14g" equivalence rules, which are subtle enough that having
+   two copies would be worse. */
+#include "lobject.h"
+
 /* macro to `unsign' a character */
 #define uchar(c) ((unsigned char)(c))
+
+/*
+** Render an integer for a plain "%d"/"%i" spec. Returns the length written.
+** Same output as sprintf, without the format-string parse.
+*/
+static size_t fmt_int(char* s, LUA_INTFRM_T v) {
+  char tmp[32];
+  unsigned LUA_INTFRM_T u;
+  int p = 0;
+  size_t len = 0;
+  if (v < 0) {
+    s[len++] = '-';
+    u = 0U - (unsigned LUA_INTFRM_T)v; /* negate unsigned: safe at the minimum */
+  } else {
+    u = (unsigned LUA_INTFRM_T)v;
+  }
+  do {
+    tmp[p++] = (char)('0' + (int)(u % 10));
+    u /= 10;
+  } while (u);
+  while (p > 0) s[len++] = tmp[--p];
+  return len;
+}
 
 static int str_len(lua_State* L) {
   size_t l;
@@ -750,6 +779,14 @@ static int str_format(lua_State* L) {
         }
         case 'd':
         case 'i': {
+          /* Plain "%d"/"%i" with no flags, width or precision is by far the
+             most common spec and does not need the printf parser. The cast
+             truncates exactly as sprintf's would. */
+          if (form[1] == *(strfrmt - 1) && form[2] == '\0') {
+            LUA_INTFRM_T v = (LUA_INTFRM_T)luaL_checknumber(L, arg);
+            luaL_addlstring(&b, buff, fmt_int(buff, v));
+            continue; /* skip the addsize at the end */
+          }
           addintlen(form);
           sprintf(buff, form, (LUA_INTFRM_T)luaL_checknumber(L, arg));
           break;
@@ -767,7 +804,19 @@ static int str_format(lua_State* L) {
         case 'f':
         case 'g':
         case 'G': {
-          sprintf(buff, form, (double)luaL_checknumber(L, arg));
+          lua_Number n = luaL_checknumber(L, arg);
+          /* The default number format is the one Lua itself uses and the one
+             serializers reach for, so integral values are worth short-cutting
+             here too. Only the exact LUA_NUMBER_FMT spec qualifies: plain "%g"
+             has a different precision and formats 1234567 as "1.23457e+06". */
+          if (strcmp(form, LUA_NUMBER_FMT) == 0) {
+            int nl = luaO_num2str(buff, n);
+            if (nl > 0) {
+              luaL_addlstring(&b, buff, (size_t)nl);
+              continue; /* skip the addsize at the end */
+            }
+          }
+          sprintf(buff, form, (double)n);
           break;
         }
         case 'q': {
@@ -777,6 +826,15 @@ static int str_format(lua_State* L) {
         case 's': {
           size_t l;
           const char* s = luaL_checklstring(L, arg, &l);
+          /* Plain "%s" needs no formatting at all. Note this must still stop
+             at the first NUL, because that is what sprintf("%s") does and what
+             the short-string path below has always produced; the l >= 100 case
+             deliberately keeps the whole string instead, and that asymmetry is
+             preserved here rather than fixed. */
+          if (form[1] == 's' && form[2] == '\0' && l < 100) {
+            luaL_addlstring(&b, s, strlen(s));
+            continue; /* skip the addsize at the end */
+          }
           if (!strchr(form, '.') && l >= 100) {
             /* no precision and string is too long to be formatted;
                keep original string */

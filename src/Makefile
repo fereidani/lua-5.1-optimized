@@ -160,7 +160,7 @@ lstate.o: lstate.c lua.h luaconf.h ldebug.h lstate.h lobject.h llimits.h \
   ltm.h lzio.h lmem.h ldo.h lfunc.h lgc.h llex.h lstring.h ltable.h
 lstring.o: lstring.c foldhash.h lmem.h llimits.h lua.h luaconf.h lobject.h \
   lstate.h ltm.h lzio.h lstring.h lgc.h
-lstrlib.o: lstrlib.c lua.h luaconf.h lauxlib.h lualib.h
+lstrlib.o: lstrlib.c lauxlib.h lua.h luaconf.h lualib.h lobject.h llimits.h
 ltable.o: ltable.c lua.h luaconf.h ldebug.h lstate.h lobject.h llimits.h \
   ltm.h lzio.h lmem.h ldo.h lgc.h ltable.h
 ltablib.o: ltablib.c lua.h luaconf.h lauxlib.h lualib.h
