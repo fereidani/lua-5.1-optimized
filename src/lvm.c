@@ -386,6 +386,37 @@ static void Arith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc,
   }
 
 /*
+** Resolve a table lookup without going through luaH_get's type switch.
+**
+** luaH_get switches on the key type and then calls the specialized accessor;
+** from the VM the two shapes that matter are known cheaply and dominate real
+** code: t.field, where the key is a string constant, and t[i] with an integer
+** in the array part. The string case dispatches straight to luaH_getstr, and
+** the integer case inlines luaH_getnum's array probe so an array read needs no
+** call at all. Everything else falls back to luaH_get unchanged.
+**
+** Sets `res` to the value, which is luaO_nilobject when the key is absent --
+** the caller still has to consult __index for that case.
+*/
+#define luaV_fastget(h, key, res)                                        \
+  {                                                                      \
+    const TValue* fk_ = (key);                                           \
+    if (luai_likely(ttisstring(fk_)))                                    \
+      (res) = luaH_getstr(h, rawtsvalue(fk_));                           \
+    else if (ttisnumber(fk_)) {                                          \
+      int fi_;                                                           \
+      if (luaO_num2int(nvalue(fk_), &fi_))                               \
+        (res) = (cast(unsigned int, fi_) - 1u <                          \
+                 cast(unsigned int, (h)->sizearray))                     \
+                    ? &(h)->array[fi_ - 1]                               \
+                    : luaH_getnum(h, fi_);                               \
+      else                                                               \
+        (res) = luaH_get(h, fk_);                                        \
+    } else                                                               \
+      (res) = luaH_get(h, fk_);                                          \
+  }
+
+/*
 ** Instruction dispatch.
 **
 ** With GCC/Clang we use computed goto ("labels as values") for threaded
@@ -534,7 +565,19 @@ reentry: /* entry point */
         vmbreak;
       }
       vmcase(OP_GETTABLE) {
-        Protect(luaV_gettable(L, RB(i), RKC(i), ra));
+        const TValue* rb = RB(i);
+        if (luai_likely(ttistable(rb))) {
+          Table* h = hvalue(rb);
+          const TValue* res;
+          luaV_fastget(h, RKC(i), res);
+          /* fast path: table, result present (or no __index to consult) */
+          if (luai_likely(!ttisnil(res) ||
+                          fasttm(L, h->metatable, TM_INDEX) == NULL)) {
+            setobj2s(L, ra, res);
+            vmbreak;
+          }
+        }
+        Protect(luaV_gettable(L, rb, RKC(i), ra));
         vmbreak;
       }
       vmcase(OP_SETGLOBAL) {
@@ -551,6 +594,20 @@ reentry: /* entry point */
         vmbreak;
       }
       vmcase(OP_SETTABLE) {
+        if (luai_likely(ttistable(ra))) {
+          Table* h = hvalue(ra);
+          const TValue* slot;
+          luaV_fastget(h, RKB(i), slot);
+          /* fast path: table, key already present, no __newindex. Avoids the
+             rehash/insert path and the luaV_settable call. */
+          if (luai_likely(!ttisnil(slot) &&
+                          fasttm(L, h->metatable, TM_NEWINDEX) == NULL)) {
+            setobj2t(L, cast(TValue*, slot), RKC(i));
+            h->flags = 0;
+            luaC_barriert(L, h, RKC(i));
+            vmbreak;
+          }
+        }
         Protect(luaV_settable(L, ra, RKB(i), RKC(i)));
         vmbreak;
       }
@@ -564,6 +621,16 @@ reentry: /* entry point */
       vmcase(OP_SELF) {
         StkId rb = RB(i);
         setobjs2s(L, ra + 1, rb);
+        if (luai_likely(ttistable(rb))) {
+          Table* h = hvalue(rb);
+          const TValue* res;
+          luaV_fastget(h, RKC(i), res);
+          if (luai_likely(!ttisnil(res) ||
+                          fasttm(L, h->metatable, TM_INDEX) == NULL)) {
+            setobj2s(L, ra, res);
+            vmbreak;
+          }
+        }
         Protect(luaV_gettable(L, rb, RKC(i), ra));
         vmbreak;
       }
