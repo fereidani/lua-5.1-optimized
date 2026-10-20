@@ -1,0 +1,23 @@
+# build output
+*.o
+*.a
+src/lua
+src/luac
+etc/*.o
+
+# luac default output
+luac.out
+src/luac.out
+# performance harness scratch
+tests/perf/.work/
+tests/.fuzzwork/
+# stock Lua tree extracted for benchmark comparison
+lua-5.1.5/
+lua-5.1.5.tar.gz
+# compiled benchmark helpers
+bench/bench_hash
+# tracing/profiling dumps
+*.strace
+strace_out
+project.log
+report.csv
