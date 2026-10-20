@@ -326,6 +326,33 @@ typedef union Closure {
 ** Tables
 */
 
+/*
+** Convert a lua_Number to an int, but only when it converts exactly.
+**
+** The conversion itself is guarded: casting a double outside int's range to
+** int is undefined behaviour, and stock Lua 5.1 performs it unguarded in
+** arrayindex() and luaH_get(). UBSan reports it for an ordinary table key such
+** as t[2^40]. In practice x86 yields INT_MIN and the equality test below then
+** rejects it, so the observable behaviour is right by accident; other targets
+** are free to trap or to produce a value that compares equal.
+**
+** Returns 1 and stores the result when exact, 0 otherwise. Callers fall
+** through to the generic key path on 0, which is what they did before.
+*/
+#if defined(LUA_CORE) /* luai_numeq is a core-only macro */
+l_inline int luaO_num2int(lua_Number n, int* k) {
+  if (n >= (lua_Number)INT_MIN && n <= (lua_Number)INT_MAX) {
+    int i;
+    lua_number2int(i, n);
+    if (luai_numeq(cast_num(i), n)) {
+      *k = i;
+      return 1;
+    }
+  }
+  return 0;
+}
+#endif
+
 typedef union TKey {
   struct {
     TValuefields;

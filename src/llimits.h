@@ -113,6 +113,18 @@ typedef lu_int32 Instruction;
 ** without it (e.g. MSVC) they degrade to no-ops. Define luai_likely before
 ** including this header to override.
 */
+/* portable "static inline" (C89 has no inline) */
+#if defined(__cplusplus) || \
+    (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L)
+#define l_inline static inline
+#elif defined(__GNUC__)
+#define l_inline static __inline__
+#elif defined(_MSC_VER)
+#define l_inline static __inline
+#else
+#define l_inline static
+#endif
+
 #if !defined(luai_likely)
 #if defined(__GNUC__) || defined(__clang__)
 #define luai_likely(x) (__builtin_expect(!!(x), 1))

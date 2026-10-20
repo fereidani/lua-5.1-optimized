@@ -106,10 +106,8 @@ static Node* mainposition(const Table* t, const TValue* key) {
 */
 static int arrayindex(const TValue* key) {
   if (ttisnumber(key)) {
-    lua_Number n = nvalue(key);
     int k;
-    lua_number2int(k, n);
-    if (luai_numeq(cast_num(k), n)) return k;
+    if (luaO_num2int(nvalue(key), &k)) return k;
   }
   return -1; /* `key' did not match some condition */
 }
@@ -392,7 +390,8 @@ static TValue* newkey(lua_State* L, Table* t, const TValue* key) {
 */
 const TValue* luaH_getnum(Table* t, int key) {
   /* (1 <= key && key <= t->sizearray) */
-  if (cast(unsigned int, key - 1) < cast(unsigned int, t->sizearray))
+  /* subtract in unsigned: key - 1 overflows int for key == INT_MIN */
+  if (cast(unsigned int, key) - 1u < cast(unsigned int, t->sizearray))
     return &t->array[key - 1];
   else {
     lua_Number nk = cast_num(key);
@@ -432,10 +431,8 @@ const TValue* luaH_get(Table* t, const TValue* key) {
       return luaH_getstr(t, rawtsvalue(key));
     case LUA_TNUMBER: {
       int k;
-      lua_Number n = nvalue(key);
-      lua_number2int(k, n);
-      if (luai_numeq(cast_num(k), nvalue(key))) /* index is int? */
-        return luaH_getnum(t, k);               /* use specialized version */
+      if (luaO_num2int(nvalue(key), &k)) /* index is an exact int? */
+        return luaH_getnum(t, k);        /* use specialized version */
       /* else go through */
     }
     default: {
