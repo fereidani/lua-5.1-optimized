@@ -4,6 +4,12 @@
 src/lua
 src/luac
 etc/*.o
+# Windows build output (build.bat)
+src/*.exe
+src/*.dll
+src/*.lib
+src/*.exp
+src/*.pdb
 
 # luac default output
 luac.out
