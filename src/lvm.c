@@ -402,19 +402,23 @@ static void Arith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc,
             ISK(GETARG_C(i)) ? k + INDEXK(GETARG_C(i)) : base + GETARG_C(i))
 #define KBx(i) check_exp(getBMode(GET_OPCODE(i)) == OpArgK, k + GETARG_Bx(i))
 
+/* Every loop back-edge passes through here, so this is also where a hook
+   installed asynchronously (see updatehookflag) is noticed. */
 #define dojump(L, pc, i) \
   {                      \
     (pc) += (i);         \
+    updatehookflag();    \
     luai_threadyield(L); \
   }
 
-#define Protect(x)   \
-  {                  \
-    L->savedpc = pc; \
-    {                \
-      x;             \
-    };               \
-    base = L->base;  \
+#define Protect(x)       \
+  {                      \
+    L->savedpc = pc;     \
+    {                    \
+      x;                 \
+    };                   \
+    base = L->base;      \
+    updatehookflag();    \
   }
 
 #define arith_op(op, tm)                                  \
@@ -489,12 +493,30 @@ static void Arith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc,
 #define LUA_USE_THREADED_VM
 #endif
 
+/*
+** Cached copy of "are line/count hooks active?".
+**
+** The test runs on every dispatched instruction, where reloading L->hookmask
+** and masking it costs a load and an AND each time. Synchronous changes happen
+** inside a call out of the VM, so we refresh where control re-enters: the
+** `reentry` label, every Protect(), and traceexec() (a hook may install or
+** clear a hook). But lua_sethook is also documented as async-safe -- lua.c's
+** SIGINT handler and watchdog-style timeouts call it while the VM is running
+** code that makes no calls at all -- so dojump() refreshes too. Any code that
+** runs unboundedly long without a call must jump, so an asynchronously set
+** hook is seen within one loop iteration. The volatile read stops the
+** compiler from hoisting the load out of a loop that contains no stores.
+*/
+#define updatehookflag()                               \
+  (hookflag = (*(volatile lu_byte*)&L->hookmask &      \
+               (LUA_MASKLINE | LUA_MASKCOUNT)))
+
 /* Fetch the next instruction, run line/count hooks, and set `ra`. Shared by
    the loop prologue and (in threaded mode) by every opcode's tail. */
 #define vmfetch()                                                              \
   do {                                                                         \
     i = *pc++;                                                                 \
-    if (luai_unlikely((L->hookmask & (LUA_MASKLINE | LUA_MASKCOUNT)) &&        \
+    if (luai_unlikely(hookflag &&                                              \
                       (--L->hookcount == 0 || L->hookmask & LUA_MASKLINE))) {  \
       traceexec(L, pc);                                                        \
       if (L->status == LUA_YIELD) {                                            \
@@ -502,6 +524,7 @@ static void Arith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc,
         return;                                                                \
       }                                                                        \
       base = L->base;                                                          \
+      updatehookflag();                                                        \
     }                                                                          \
     ra = RA(i);                                                                \
   } while (0)
@@ -532,6 +555,7 @@ static void Arith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc,
 void luaV_execute(lua_State* L, int nexeccalls) {
   LClosure* cl;
   StkId base;
+  int hookflag;
   TValue* k;
   const Instruction* pc;
 reentry: /* entry point */
@@ -540,6 +564,7 @@ reentry: /* entry point */
   cl = &clvalue(L->ci->func)->l;
   base = L->base;
   k = cl->p->k;
+  updatehookflag();
   /* main loop of interpreter */
 #if defined(LUA_USE_THREADED_VM)
   /* dispatch table: opcode -> handler label (computed-goto threaded code) */
@@ -801,9 +826,12 @@ reentry: /* entry point */
             goto reentry; /* restart luaV_execute over new Lua function */
           }
           case PCRC: {
-            /* it was a C function (`precall' called it); adjust results */
+            /* it was a C function (`precall' called it); adjust results.
+               That C function may have been debug.sethook, so the cached hook
+               flag has to be refreshed here as well as in Protect(). */
             if (nresults >= 0) L->top = L->ci->top;
             base = L->base;
+            updatehookflag();
             vmbreak;
           }
           default: {
@@ -836,6 +864,7 @@ reentry: /* entry point */
           }
           case PCRC: { /* it was a C function (`precall' called it) */
             base = L->base;
+            updatehookflag(); /* it may have been debug.sethook */
             vmbreak;
           }
           default: {
