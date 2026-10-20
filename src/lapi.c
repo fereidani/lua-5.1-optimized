@@ -47,10 +47,8 @@ static TValue* index2adr(lua_State* L, int idx) {
   if (idx > 0) {
     TValue* o = L->base + (idx - 1);
     api_check(L, idx <= L->ci->top - L->base);
-    if (o >= L->top)
-      return cast(TValue*, luaO_nilobject);
-    else
-      return o;
+    if (o >= L->top) return cast(TValue*, luaO_nilobject);
+    return o;
   } else if (idx > LUA_REGISTRYINDEX) {
     api_check(L, idx != 0 && -idx <= L->top - L->base);
     return L->top + idx;
@@ -279,10 +277,7 @@ LUA_API int lua_lessthan(lua_State* L, int index1, int index2) {
 LUA_API lua_Number lua_tonumber(lua_State* L, int idx) {
   TValue n;
   const TValue* o = index2adr(L, idx);
-  if (tonumber(o, &n))
-    return nvalue(o);
-  else
-    return 0;
+  return tonumber(o, &n) ? nvalue(o) : 0;
 }
 
 LUA_API lua_Integer lua_tointeger(lua_State* L, int idx) {
@@ -290,11 +285,10 @@ LUA_API lua_Integer lua_tointeger(lua_State* L, int idx) {
   const TValue* o = index2adr(L, idx);
   if (tonumber(o, &n)) {
     lua_Integer res;
-    lua_Number num = nvalue(o);
-    lua_number2integer(res, num);
+    lua_number2integer(res, nvalue(o));
     return res;
-  } else
-    return 0;
+  }
+  return 0;
 }
 
 LUA_API int lua_toboolean(lua_State* L, int idx) {

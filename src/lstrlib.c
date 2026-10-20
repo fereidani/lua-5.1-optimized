@@ -343,8 +343,7 @@ static const char* match_capture(MatchState* ms, const char* s, int l) {
   if ((size_t)(ms->src_end - s) >= len &&
       memcmp(ms->capture[l].init, s, len) == 0)
     return s + len;
-  else
-    return NULL;
+  return NULL;
 }
 
 static const char* match(MatchState* ms, const char* s, const char* p) {
@@ -435,11 +434,9 @@ init: /* using goto's to optimize tail recursion */
 
 static const char* lmemfind(const char* s1, size_t l1, const char* s2,
                             size_t l2) {
-  if (l2 == 0)
-    return s1; /* empty strings are everywhere */
-  else if (l2 > l1)
-    return NULL; /* avoids a negative `l1' */
-  else {
+  if (l2 == 0) return s1;   /* empty strings are everywhere */
+  if (l2 > l1) return NULL; /* avoids a negative `l1' */
+  {
     const char* init; /* to search for a `*s2' inside `s1' */
     l2--;             /* 1st char will be checked by `memchr' */
     l1 = l1 - l2;     /* `s2' cannot be found after that */

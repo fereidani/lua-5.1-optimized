@@ -34,19 +34,15 @@ int luaO_int2fb(unsigned int x) {
     x = (x + 1) >> 1;
     e++;
   }
-  if (x < 8)
-    return x;
-  else
-    return ((e + 1) << 3) | (cast_int(x) - 8);
+  if (x < 8) return x;
+  return ((e + 1) << 3) | (cast_int(x) - 8);
 }
 
 /* converts back */
 int luaO_fb2int(int x) {
   int e = (x >> 3) & 31;
-  if (e == 0)
-    return x;
-  else
-    return ((x & 7) + 8) << (e - 1);
+  if (e == 0) return x;
+  return ((x & 7) + 8) << (e - 1);
 }
 
 int luaO_log2(unsigned int x) {
@@ -71,22 +67,20 @@ int luaO_log2(unsigned int x) {
 }
 
 int luaO_rawequalObj(const TValue* t1, const TValue* t2) {
-  if (ttype(t1) != ttype(t2))
-    return 0;
-  else
-    switch (ttype(t1)) {
-      case LUA_TNIL:
-        return 1;
-      case LUA_TNUMBER:
-        return luai_numeq(nvalue(t1), nvalue(t2));
-      case LUA_TBOOLEAN:
-        return bvalue(t1) == bvalue(t2); /* boolean true must be 1 !! */
-      case LUA_TLIGHTUSERDATA:
-        return pvalue(t1) == pvalue(t2);
-      default:
-        lua_assert(iscollectable(t1));
-        return gcvalue(t1) == gcvalue(t2);
-    }
+  if (ttype(t1) != ttype(t2)) return 0;
+  switch (ttype(t1)) {
+    case LUA_TNIL:
+      return 1;
+    case LUA_TNUMBER:
+      return luai_numeq(nvalue(t1), nvalue(t2));
+    case LUA_TBOOLEAN:
+      return bvalue(t1) == bvalue(t2); /* boolean true must be 1 !! */
+    case LUA_TLIGHTUSERDATA:
+      return pvalue(t1) == pvalue(t2);
+    default:
+      lua_assert(iscollectable(t1));
+      return gcvalue(t1) == gcvalue(t2);
+  }
 }
 
 int luaO_str2d(const char* s, lua_Number* result) {
@@ -97,8 +91,7 @@ int luaO_str2d(const char* s, lua_Number* result) {
     *result = cast_num(strtoul(s, &endptr, 16));
   if (*endptr == '\0') return 1; /* most common case */
   while (isspace(cast(unsigned char, *endptr))) endptr++;
-  if (*endptr != '\0') return 0; /* invalid trailing characters? */
-  return 1;
+  return *endptr == '\0';
 }
 
 static void pushstr(lua_State* L, const char* str) {

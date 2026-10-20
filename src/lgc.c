@@ -56,6 +56,8 @@
 
 #define setthreshold(g) (g->GCthreshold = (g->estimate / 100) * g->gcpause)
 
+#define graylink(g, p) ((p)->gclist = (g)->gray, (g)->gray = obj2gco(p))
+
 static void removeentry(Node* n) {
   lua_assert(ttisnil(gval(n)));
   if (iscollectable(gkey(n)))
@@ -84,23 +86,19 @@ static void reallymarkobject(global_State* g, GCObject* o) {
       return;
     }
     case LUA_TFUNCTION: {
-      gco2cl(o)->c.gclist = g->gray;
-      g->gray = o;
+      graylink(g, &gco2cl(o)->c);
       break;
     }
     case LUA_TTABLE: {
-      gco2h(o)->gclist = g->gray;
-      g->gray = o;
+      graylink(g, gco2h(o));
       break;
     }
     case LUA_TTHREAD: {
-      gco2th(o)->gclist = g->gray;
-      g->gray = o;
+      graylink(g, gco2th(o));
       break;
     }
     case LUA_TPROTO: {
-      gco2p(o)->gclist = g->gray;
-      g->gray = o;
+      graylink(g, gco2p(o));
       break;
     }
     default:
