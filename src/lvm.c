@@ -371,15 +371,15 @@ static void Arith(lua_State* L, StkId ra, const TValue* rb, const TValue* rc,
     base = L->base;  \
   }
 
-#define arith_op(op, tm)                           \
-  {                                                \
-    TValue* rb = RKB(i);                           \
-    TValue* rc = RKC(i);                           \
-    if (ttisnumber(rb) && ttisnumber(rc)) {        \
-      lua_Number nb = nvalue(rb), nc = nvalue(rc); \
-      setnvalue(ra, op(nb, nc));                   \
-    } else                                         \
-      Protect(Arith(L, ra, rb, rc, tm));           \
+#define arith_op(op, tm)                                  \
+  {                                                       \
+    TValue* rb = RKB(i);                                  \
+    TValue* rc = RKC(i);                                  \
+    if (luai_likely(ttisnumber(rb) && ttisnumber(rc))) {  \
+      lua_Number nb = nvalue(rb), nc = nvalue(rc);        \
+      setnvalue(ra, op(nb, nc));                          \
+    } else                                                \
+      Protect(Arith(L, ra, rb, rc, tm));                  \
   }
 
 void luaV_execute(lua_State* L, int nexeccalls) {
@@ -505,7 +505,7 @@ reentry: /* entry point */
       }
       case OP_UNM: {
         TValue* rb = RB(i);
-        if (ttisnumber(rb)) {
+        if (luai_likely(ttisnumber(rb))) {
           lua_Number nb = nvalue(rb);
           setnvalue(ra, luai_numunm(nb));
         } else {

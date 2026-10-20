@@ -107,4 +107,20 @@ typedef lu_int32 Instruction;
 #define condhardstacktests(x) x
 #endif
 
+/*
+** Branch prediction hints. Compilers that support __builtin_expect (GCC,
+** Clang, and other GCC-compatible frontends) get real hints; on compilers
+** without it (e.g. MSVC) they degrade to no-ops. Define luai_likely before
+** including this header to override.
+*/
+#if !defined(luai_likely)
+#if defined(__GNUC__) || defined(__clang__)
+#define luai_likely(x) (__builtin_expect(!!(x), 1))
+#define luai_unlikely(x) (__builtin_expect(!!(x), 0))
+#else
+#define luai_likely(x) (x)
+#define luai_unlikely(x) (x)
+#endif
+#endif
+
 #endif
