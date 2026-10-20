@@ -83,6 +83,69 @@ int luaO_rawequalObj(const TValue* t1, const TValue* t2) {
   }
 }
 
+/*
+** Format an integral lua_Number without going through sprintf(LUA_NUMBER_FMT).
+** Writes a NUL-terminated result into `s` (which must hold at least
+** LUAI_MAXNUMBER2STR bytes) and returns its length, or returns 0 if the value
+** is not eligible and the caller must fall back to sprintf.
+**
+** Output is byte-identical to "%.14g". Two edges make that non-obvious:
+** "%.14g" prints 14 significant digits, so it renders an integral value as
+** plain digits only up to 99999999999999 -- at 1e14 (15 digits) it switches to
+** "1e+14", so the bound below is deliberately strict. And negative zero prints
+** as "-0", so the sign has to survive the zero case. Non-integral values, NaN
+** and the infinities all fail the tests and fall back.
+**
+** See tests/num2str_check.lua, which verifies the equivalence against
+** string.format("%.14g", n) over millions of values.
+*/
+#if defined(LUAI_NUM2STR_FASTPATH)
+
+#define NUM2STR_MAX 99999999999999.0 /* largest integral value with <= 14 digits */
+
+int luaO_num2str(char* s, lua_Number n) {
+  char tmp[24];
+  long long i;
+  unsigned long long u;
+  int p = 0, len = 0;
+  /* Everything below assumes "%.14g". The preprocessor cannot compare
+     strings, so check here; compilers fold this to a constant. */
+  if (strcmp(LUA_NUMBER_FMT, "%.14g") != 0) return 0;
+  if (!(n >= -NUM2STR_MAX && n <= NUM2STR_MAX)) return 0; /* also rejects NaN */
+  i = (long long)n;
+  if ((lua_Number)i != n) return 0; /* not integral */
+  if (i == 0) {
+    /* distinguish 0.0 from -0.0: 1/(-0.0) is negative infinity */
+    if (n == 0 && 1 / n < 0) s[len++] = '-';
+    s[len++] = '0';
+    s[len] = '\0';
+    return len;
+  }
+  if (i < 0) {
+    s[len++] = '-';
+    u = 0ULL - (unsigned long long)i; /* negate in unsigned: safe for LLONG_MIN */
+  } else {
+    u = (unsigned long long)i;
+  }
+  do {
+    tmp[p++] = (char)('0' + (int)(u % 10));
+    u /= 10;
+  } while (u);
+  while (p > 0) s[len++] = tmp[--p];
+  s[len] = '\0';
+  return len;
+}
+
+#else
+
+int luaO_num2str(char* s, lua_Number n) {
+  (void)s;
+  (void)n;
+  return 0;
+}
+
+#endif
+
 int luaO_str2d(const char* s, lua_Number* result) {
   char* endptr;
   *result = lua_str2number(s, &endptr);

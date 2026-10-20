@@ -43,6 +43,13 @@ int luaV_tostring(lua_State* L, StkId obj) {
   else {
     char s[LUAI_MAXNUMBER2STR];
     lua_Number n = nvalue(obj);
+#if defined(LUAI_NUM2STR_FASTPATH)
+    int len = luaO_num2str(s, n);
+    if (luai_likely(len > 0)) {
+      setsvalue2s(L, obj, luaS_newlstr(L, s, (size_t)len));
+      return 1;
+    }
+#endif
     lua_number2str(s, n);
     setsvalue2s(L, obj, luaS_new(L, s));
     return 1;

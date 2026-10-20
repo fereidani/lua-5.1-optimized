@@ -497,6 +497,21 @@
 #define lua_str2number(s, p) strtod((s), (p))
 
 /*
+@@ LUAI_NUM2STR_FASTPATH enables an integer fast path in luaV_tostring().
+** glibc's "%.14g" costs ~218ns per conversion; integral values, which is what
+** Lua code converts most of the time (loop counters, ids, sizes, table keys),
+** can be formatted with integer division in ~12ns. Output is byte-identical.
+** The fast path is only correct for this exact configuration -- double values
+** printed with "%.14g". It is absent if LUA_NUMBER is not double, and
+** luaO_num2str declines every value if LUA_NUMBER_FMT is changed (the
+** preprocessor cannot compare strings, so that check is in the code).
+** Undefine to disable.
+*/
+#if defined(LUA_NUMBER_DOUBLE)
+#define LUAI_NUM2STR_FASTPATH
+#endif
+
+/*
 @@ The luai_num* macros define the primitive operations over numbers.
 */
 #if defined(LUA_CORE)
