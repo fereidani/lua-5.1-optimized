@@ -353,10 +353,33 @@ l_inline int luaO_num2int(lua_Number n, int* k) {
 }
 #endif
 
+/*
+** Copy a value into a node's key, leaving the chain pointer alone. A TKey is
+** a TValue plus `next`, so this cannot be a plain struct assignment.
+*/
+#define setnodekey(L, k, obj)   \
+  {                             \
+    const TValue* nk_o = (obj); \
+    (k)->value = nk_o->value;   \
+    (k)->tt = nk_o->tt;         \
+    checkliveness(G(L), nk_o);  \
+  }
+
+/*
+** `next` is a relative offset to the next node in the chain, not a pointer:
+** nodes always live in one array, so an int suffices, and it packs into the
+** padding a TValue already carries. That takes TKey from 24 bytes to 16 and a
+** Node from 40 to 32, which is exactly two per cache line instead of one and a
+** half, so a chain walk no longer straddles lines. Zero terminates the chain.
+**
+** The offset is relative rather than an index so that it stays valid without
+** the owning Table in scope, which keeps every walk site unchanged in shape.
+** The cost is that moving a node has to fix up the offset -- see newkey.
+*/
 typedef union TKey {
   struct {
     TValuefields;
-    struct Node* next; /* for chaining */
+    int next; /* for chaining (offset to next node; 0 = end) */
   } nk;
   TValue tvk;
 } TKey;
