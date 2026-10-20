@@ -28,6 +28,9 @@ CORE_O=	lapi.o lcode.o ldebug.o ldo.o ldump.o lfunc.o lgc.o llex.o lmem.o \
 	lundump.o lvm.o lzio.o
 LIB_O=	lauxlib.o lbaselib.o ldblib.o liolib.o lmathlib.o loslib.o ltablib.o \
 	lstrlib.o loadlib.o linit.o
+# The library is built from onelua.c, which compiles all of the above as one
+# translation unit so the compiler can inline across files; see onelua.c.
+ONE_O=	onelua.o
 
 LUA_T=	lua
 LUA_O=	lua.o
@@ -35,7 +38,7 @@ LUA_O=	lua.o
 LUAC_T=	luac
 LUAC_O=	luac.o print.o
 
-ALL_O= $(CORE_O) $(LIB_O) $(LUA_O) $(LUAC_O)
+ALL_O= $(ONE_O) $(LUA_O) $(LUAC_O)
 ALL_T= $(LUA_A) $(LUA_T) $(LUAC_T)
 ALL_A= $(LUA_A)
 
@@ -47,8 +50,8 @@ o:	$(ALL_O)
 
 a:	$(ALL_A)
 
-$(LUA_A): $(CORE_O) $(LIB_O)
-	$(AR) $@ $(CORE_O) $(LIB_O)	# DLL needs all object files
+$(LUA_A): $(ONE_O)
+	$(AR) $@ $(ONE_O)	# DLL needs all object files
 	$(RANLIB) $@
 
 $(LUA_T): $(LUA_O) $(LUA_A)
@@ -58,7 +61,7 @@ $(LUAC_T): $(LUAC_O) $(LUA_A)
 	$(CC) -o $@ $(MYLDFLAGS) $(LUAC_O) $(LUA_A) $(LIBS)
 
 clean:
-	$(RM) $(ALL_T) $(ALL_O)
+	$(RM) $(ALL_T) $(ALL_O) $(CORE_O) $(LIB_O)
 
 depend:
 	@$(CC) $(CFLAGS) -MM l*.c print.c
@@ -120,6 +123,10 @@ solaris:
 
 # DO NOT DELETE
 
+onelua.o: onelua.c $(CORE_O:.o=.c) $(LIB_O:.o=.c) foldhash.h lapi.h \
+  lauxlib.h lcode.h ldebug.h ldo.h lfunc.h lgc.h llex.h llimits.h lmem.h \
+  lobject.h lopcodes.h lparser.h lstate.h lstring.h ltable.h ltm.h lua.h \
+  luaconf.h lualib.h lundump.h lvm.h lzio.h
 lapi.o: lapi.c lua.h luaconf.h lapi.h lobject.h llimits.h ldebug.h \
   lstate.h ltm.h lzio.h lmem.h ldo.h lfunc.h lgc.h lstring.h ltable.h \
   lundump.h lvm.h
