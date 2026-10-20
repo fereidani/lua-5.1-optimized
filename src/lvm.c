@@ -117,6 +117,49 @@ void luaV_gettable(lua_State* L, const TValue* t, TValue* key, StkId val) {
   luaG_runerror(L, "loop in gettable");
 }
 
+/*
+** Continue a table read whose primitive lookup has already been done by the
+** caller and came back nil, with `tm` the __index metamethod that lookup
+** found. This is the second half of luaV_gettable, split out so the VM's fast
+** path does not have to repeat work it has already done.
+**
+** It matters more than it looks. `obj:method()` misses on the instance and
+** then finds the method through __index, so a miss is the normal case, not the
+** exceptional one: 33% of all string lookups in tests/perf/gen_method_calls
+** are misses. Falling back into luaV_gettable made every one of those walk the
+** instance's chain a second time before ever consulting __index.
+**
+** The caller already did luaV_gettable's first primitive lookup, so each
+** iteration here starts with the __index check that ends the previous one.
+** Hence loop counts lookups done (starting at 1), and the check runs before
+** the bound: luaV_gettable still calls an __index function found on its
+** MAXTAGLOOP-th table, so we must too.
+*/
+void luaV_finishget(lua_State* L, const TValue* t, TValue* key, StkId val,
+                    const TValue* tm) {
+  int loop;
+  for (loop = 1;; loop++) {
+    if (ttisfunction(tm)) {
+      callTMres(L, val, tm, t, key);
+      return;
+    }
+    if (loop == MAXTAGLOOP) break;
+    t = tm; /* else repeat with `tm' */
+    if (ttistable(t)) {
+      Table* h = hvalue(t);
+      const TValue* res = luaH_get(h, key); /* do a primitive get */
+      if (!ttisnil(res) ||                  /* result is no nil? */
+          (tm = fasttm(L, h->metatable, TM_INDEX)) == NULL) { /* or no TM? */
+        setobj2s(L, val, res);
+        return;
+      }
+      /* else will try the tag method */
+    } else if (ttisnil(tm = luaT_gettmbyobj(L, t, TM_INDEX)))
+      luaG_typeerror(L, t, "index");
+  }
+  luaG_runerror(L, "loop in gettable");
+}
+
 void luaV_settable(lua_State* L, const TValue* t, TValue* key, StkId val) {
   int loop;
   TValue temp;
@@ -569,13 +612,18 @@ reentry: /* entry point */
         if (luai_likely(ttistable(rb))) {
           Table* h = hvalue(rb);
           const TValue* res;
+          const TValue* tm;
           luaV_fastget(h, RKC(i), res);
           /* fast path: table, result present (or no __index to consult) */
           if (luai_likely(!ttisnil(res) ||
-                          fasttm(L, h->metatable, TM_INDEX) == NULL)) {
+                          (tm = fasttm(L, h->metatable, TM_INDEX)) == NULL)) {
             setobj2s(L, ra, res);
             vmbreak;
           }
+          /* absent, but there is an __index: continue from there rather than
+             letting luaV_gettable repeat the lookup we just did */
+          Protect(luaV_finishget(L, rb, RKC(i), ra, tm));
+          vmbreak;
         }
         Protect(luaV_gettable(L, rb, RKC(i), ra));
         vmbreak;
@@ -624,12 +672,17 @@ reentry: /* entry point */
         if (luai_likely(ttistable(rb))) {
           Table* h = hvalue(rb);
           const TValue* res;
+          const TValue* tm;
           luaV_fastget(h, RKC(i), res);
           if (luai_likely(!ttisnil(res) ||
-                          fasttm(L, h->metatable, TM_INDEX) == NULL)) {
+                          (tm = fasttm(L, h->metatable, TM_INDEX)) == NULL)) {
             setobj2s(L, ra, res);
             vmbreak;
           }
+          /* method lookup missing on the receiver is the normal case for
+             obj:method(); go straight to __index */
+          Protect(luaV_finishget(L, rb, RKC(i), ra, tm));
+          vmbreak;
         }
         Protect(luaV_gettable(L, rb, RKC(i), ra));
         vmbreak;
