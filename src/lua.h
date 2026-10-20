@@ -17,6 +17,10 @@
 #define LUA_RELEASE "Lua 5.1.5"
 #define LUA_VERSION_NUM 501
 #define LUA_COPYRIGHT "Copyright (C) 1994-2012 Lua.org, PUC-Rio"
+/* This fork's own copyright, printed after the upstream line. LUA_VERSION and
+   LUA_VERSION_NUM are deliberately left alone: scripts test them for
+   compatibility, and this fork is compatible. */
+#define LUA_FORK_COPYRIGHT "Copyright (C) 2026 Khashayar Fereidani"
 #define LUA_AUTHORS "R. Ierusalimschy, L. H. de Figueiredo & W. Celes"
 
 /* mark for precompiled code (`<esc>Lua') */

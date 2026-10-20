@@ -97,6 +97,7 @@ static int docall(lua_State* L, int narg, int clear) {
 
 static void print_version(void) {
   l_message(NULL, LUA_RELEASE "  " LUA_COPYRIGHT);
+  l_message(NULL, LUA_FORK_COPYRIGHT);
 }
 
 static int getargs(lua_State* L, char** argv, int n) {
