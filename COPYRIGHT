@@ -31,4 +31,16 @@ THE SOFTWARE.
 
 ===============================================================================
 
+Third-party components
+----------------------
+
+src/foldhash.h is a C port of Rust foldhash (github.com/orlp/foldhash) by
+Orson Peters, used under the Zlib license. The full notice is reproduced in
+that file, as the Zlib license requires. Zlib is permissive and compatible
+with the MIT terms above; it adds only the requirements that the origin not be
+misrepresented, that altered versions be marked as such, and that the notice
+be retained.
+
+===============================================================================
+
 (end of COPYRIGHT)

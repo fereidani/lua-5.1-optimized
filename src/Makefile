@@ -158,8 +158,8 @@ lparser.o: lparser.c lua.h luaconf.h lcode.h llex.h lobject.h llimits.h \
   lfunc.h lstring.h lgc.h ltable.h
 lstate.o: lstate.c lua.h luaconf.h ldebug.h lstate.h lobject.h llimits.h \
   ltm.h lzio.h lmem.h ldo.h lfunc.h lgc.h llex.h lstring.h ltable.h
-lstring.o: lstring.c lua.h luaconf.h lmem.h llimits.h lobject.h lstate.h \
-  ltm.h lzio.h lstring.h lgc.h
+lstring.o: lstring.c foldhash.h lmem.h llimits.h lua.h luaconf.h lobject.h \
+  lstate.h ltm.h lzio.h lstring.h lgc.h
 lstrlib.o: lstrlib.c lua.h luaconf.h lauxlib.h lualib.h
 ltable.o: ltable.c lua.h luaconf.h ldebug.h lstate.h lobject.h llimits.h \
   ltm.h lzio.h lmem.h ldo.h lgc.h ltable.h
